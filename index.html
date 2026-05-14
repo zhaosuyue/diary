@@ -146,6 +146,43 @@
       .container { padding: 48px 20px 80px; }
       header { margin-bottom: 24px; }
     }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #111; color: #ddd; }
+      header { border-bottom-color: #2a2a2a; }
+      header h1 { color: #eee; }
+      .tab { background: #1a1a1a; border-color: #2a2a2a; color: #666; }
+      .tab:hover { border-color: #444; color: #aaa; }
+      .tab.active { background: #eee; color: #111; border-color: #eee; }
+      .entry-card { border-bottom-color: #1e1e1e; }
+      .entry-card:hover .entry-title { color: #fff; }
+      .entry-tag { background: #222; color: #666; }
+      .entry-title { color: #eee; }
+      .entry-summary { color: #666; }
+      .back-btn { color: #555; }
+      .back-btn:hover { color: #aaa; }
+      .detail-title { color: #eee; }
+      .detail-body { color: #aaa; }
+      .detail-body hr { background: #222; }
+      .entry-section-title { color: #ddd; }
+      .article-card { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
+      .article-card:hover { background: #222; }
+      .article-label { color: #666; }
+      .article-title { color: #ddd; }
+      .article-source { color: #555; }
+      .music-card { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
+      .music-card:hover { background: #222; box-shadow: none; }
+      .music-title { color: #ddd; }
+      .music-artist { color: #666; }
+      .music-note { color: #555; }
+      .music-arrow { color: #444; }
+      .reading-section { border-top-color: #222; }
+      .reading-label { color: #555; }
+      .reading-link { color: #777; border-bottom-color: #1e1e1e; }
+      .reading-link:hover { color: #bbb; }
+      .reading-source { color: #555; }
+      footer { color: #333; }
+    }
   </style>
 </head>
 <body>
