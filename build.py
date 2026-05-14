@@ -127,6 +127,7 @@ def md_to_html(text):
 
 
 def first_sentence(text, max_chars=80):
+    """Fallback: grab first real paragraph."""
     text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
     text = re.sub(r'^tags:.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
@@ -136,6 +137,14 @@ def first_sentence(text, max_chars=80):
         if para and para != '---' and not para.startswith('##'):
             return para[:max_chars] + ('…' if len(para) > max_chars else '')
     return ''
+
+
+def extract_summary(text):
+    """Extract hand-written summary from 'summary: ...' line, or fall back."""
+    match = re.match(r'^summary:\s*(.+)$', text.strip(), re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+    return None
 
 
 # ── Entry parser ───────────────────────────────────────────────────────────────
@@ -157,6 +166,11 @@ def parse_entry(filepath):
     display  = date_obj.strftime('%Y.%m.%d')
 
     body_md = '\n'.join(body_lines).strip()
+
+    # Extract summary line
+    summary_override = extract_summary(body_md)
+    if summary_override:
+        body_md = re.sub(r'^summary:.*$', '', body_md, flags=re.MULTILINE).strip()
 
     # Extract tags
     body_md, tags = parse_tags(body_md)
@@ -186,7 +200,7 @@ def parse_entry(filepath):
     if reading_items:
         body_html += '\n' + reading_block_html(reading_items)
 
-    summary = first_sentence(body_md)
+    summary = summary_override if summary_override else first_sentence(body_md)
 
     return {
         'id':       date_str,
