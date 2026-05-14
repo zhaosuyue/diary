@@ -59,7 +59,7 @@ def parse_music_block(text):
 
 
 def md_to_html(text):
-    """Minimal markdown → HTML (paragraphs, bold, italic, hr)."""
+    """Minimal markdown → HTML (h2, paragraphs, bold, italic, hr)."""
     text = text.strip()
     blocks = re.split(r'\n\n+', text)
     html_parts = []
@@ -69,6 +69,10 @@ def md_to_html(text):
             continue
         if block == '---':
             html_parts.append('<hr>')
+            continue
+        if block.startswith('## '):
+            title = block[3:].strip()
+            html_parts.append(f'<h2 class="entry-section-title">{title}</h2>')
             continue
         block = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', block)
         block = re.sub(r'\*(.+?)\*',     r'<em>\1</em>', block)
