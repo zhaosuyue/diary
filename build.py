@@ -8,6 +8,40 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'index.html')
 OUTPUT_PATH   = os.path.join(os.path.dirname(__file__), 'dist', 'index.html')
 
 
+def parse_reading_block(text):
+    """Extract <!-- reading ... --> block, return (cleaned_text, list of (title, source, url))."""
+    pattern = r'<!--\s*reading\s*(.*?)-->'
+    match = re.search(pattern, text, re.DOTALL)
+    if not match:
+        return text, []
+    raw = match.group(1).strip()
+    items = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split('|')]
+        if len(parts) == 3:
+            items.append({'title': parts[0], 'source': parts[1], 'url': parts[2]})
+        elif len(parts) == 2:
+            items.append({'title': parts[0], 'source': '', 'url': parts[1]})
+    cleaned = text[:match.start()].rstrip() + text[match.end():]
+    return cleaned, items
+
+
+def reading_block_html(items):
+    """Render further reading section."""
+    if not items:
+        return ''
+    links_html = ''
+    for item in items:
+        source_html = f'<span class="reading-source"> — {item["source"]}</span>' if item['source'] else ''
+        links_html += f'<a class="reading-link" href="{item["url"]}" target="_blank" rel="noopener">{item["title"]}{source_html}</a>\n'
+    return f'''<div class="reading-section">
+  <div class="reading-label">延伸阅读</div>
+  {links_html}</div>'''
+
+
 def parse_music_block(text):
     """Extract <!-- music ... --> block and return (cleaned_text, music_dict|None)."""
     pattern = r'<!--\s*music\s*(.*?)-->'
@@ -20,7 +54,7 @@ def parse_music_block(text):
         if ':' in line:
             key, _, val = line.partition(':')
             music[key.strip()] = val.strip()
-    cleaned = text[:match.start()].rstrip()
+    cleaned = text[:match.start()].rstrip() + text[match.end():]
     return cleaned, music if music else None
 
 
@@ -98,11 +132,14 @@ def parse_entry(filepath):
     display  = date_obj.strftime('%Y.%m.%d')
 
     body_md = '\n'.join(body_lines).strip()
+    body_md, reading = parse_reading_block(body_md)
     body_md, music = parse_music_block(body_md)
     body_html = md_to_html(body_md)
 
     if music:
         body_html += '\n' + music_card_html(music)
+    if reading:
+        body_html += '\n' + reading_block_html(reading)
 
     summary = first_sentence(body_md)
 
