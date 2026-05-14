@@ -45,12 +45,9 @@ def parse_tags(text):
 def article_card_html(music):
     title  = music.get('title', '')
     source = music.get('source', '')
-    cover  = music.get('cover', '')
     url    = music.get('url', '#')
-    cover_html = f'<img class="article-cover" src="{cover}" alt="" onerror="this.style.display=\'none\'">' if cover else ''
     source_html = f'<div class="article-source">{source}</div>' if source else ''
     return f'''<a class="article-card" href="{url}" target="_blank" rel="noopener">
-  {cover_html}
   <div class="article-info">
     <div class="article-label">来自文章</div>
     <div class="article-title">{title}</div>
@@ -164,7 +161,7 @@ def parse_entry(filepath):
     # Extract tags
     body_md, tags = parse_tags(body_md)
 
-    # Extract reading block
+    # Extract reading block (always at end)
     body_md, reading_raw = strip_block(body_md, 'reading')
     reading_items = []
     if reading_raw:
@@ -178,10 +175,11 @@ def parse_entry(filepath):
             elif len(parts) == 2:
                 reading_items.append({'title': parts[0], 'source': '', 'url': parts[1]})
 
-    # Extract music block
+    # Extract music block (always at end)
     body_md, music_raw = strip_block(body_md, 'music')
     music = parse_kv_block(music_raw) if music_raw else None
 
+    # article blocks stay inline — handled inside md_to_html
     body_html = md_to_html(body_md)
     if music:
         body_html += '\n' + music_card_html(music)
