@@ -153,11 +153,30 @@ def parse_entry(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    lines = content.strip().split('\n')
-    title, body_lines = '', lines
-    if lines and lines[0].startswith('# '):
-        title = lines[0][2:].strip()
-        body_lines = lines[1:]
+    # Strip YAML front matter if present
+    fm_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+    if fm_match:
+        fm_raw = fm_match.group(1)
+        body_lines = content[fm_match.end():].split('\n')
+        # Extract title/date/tags from front matter as fallback
+        fm = parse_kv_block(fm_raw)
+        fm_title = fm.get('title', '').strip('"\'')
+        fm_tags_raw = fm.get('tags', '')
+        # Handle YAML array syntax: [tag1, tag2]
+        fm_tags = []
+        arr_match = re.match(r'\[(.+)\]', fm_tags_raw)
+        if arr_match:
+            fm_tags = [t.strip().strip('"\'') for t in arr_match.group(1).split(',')]
+    else:
+        fm_title = ''
+        fm_tags = []
+        lines = content.strip().split('\n')
+        body_lines = lines
+
+    title = fm_title
+    if not title and body_lines and body_lines[0].startswith('# '):
+        title = body_lines[0][2:].strip()
+        body_lines = body_lines[1:]
 
     filename = os.path.basename(filepath)
     date_str = re.match(r'(\d{4}-\d{2}-\d{2})', filename)
@@ -172,8 +191,10 @@ def parse_entry(filepath):
     if summary_override:
         body_md = re.sub(r'^summary:.*$', '', body_md, flags=re.MULTILINE).strip()
 
-    # Extract tags
+    # Extract tags from body; fall back to front matter tags
     body_md, tags = parse_tags(body_md)
+    if not tags:
+        tags = fm_tags
 
     # Extract reading block (always at end)
     body_md, reading_raw = strip_block(body_md, 'reading')
