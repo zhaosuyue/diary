@@ -274,16 +274,67 @@ def build():
     entries_dict = {e['id']: {'date': e['date'], 'title': e['title'], 'body': e['body'], 'tags': e['tags']} for e in entries}
     entries_json = json.dumps(entries_dict, ensure_ascii=False)
 
-    with open(TEMPLATE_PATH, 'r', encoding='utf-8') as f:
-        template = f.read()
+    # Read the current built HTML as base template
+    # Try dist/index.html first, then root index.html
+    base_paths = [OUTPUT_PATH, TEMPLATE_PATH]
+    template = None
+    for p in base_paths:
+        if os.path.exists(p):
+            with open(p, 'r', encoding='utf-8') as f:
+                template = f.read()
+            break
+    if template is None:
+        print('Error: no base HTML found')
+        return
 
-    output = template.replace('{{list_html}}', list_html)
-    output = output.replace('{{tabs_html}}', tabs_html)
-    output = output.replace('{{entries_json}}', entries_json)
+    # Replace entries JSON: const entries = {...};
+    json_pattern = r'(const entries\s*=\s*)\{.*?\};'
+    template = re.sub(json_pattern, r'\g<1>' + entries_json + ';', template, flags=re.DOTALL)
+
+    # Replace tabs section: <div class="tabs">...</div>
+    tabs_pattern = r'(<div class="tabs">\s*)[\s\S]*?(</div>)'
+    # Find the tabs div, replace content between it and the matching </div>
+    tabs_start_marker = '<div class="tabs">'
+    tabs_idx = template.find(tabs_start_marker)
+    if tabs_idx >= 0:
+        # Find the closing </div> that matches the tabs div
+        inner_start = tabs_idx + len(tabs_start_marker)
+        # Count from the first </div> after tabs_start
+        # The tabs div contains only button elements, so the first </div> after tabs_start closes it
+        search_start = inner_start
+        while True:
+            close_idx = template.find('</div>', search_start)
+            if close_idx < 0:
+                break
+            # Check there's no nested div between inner_start and close_idx
+            between = template[inner_start:close_idx]
+            open_count = between.count('<div')
+            close_count = between.count('</div>')
+            if open_count == close_count:
+                # This is the matching close tag
+                template = template[:inner_start] + '\n' + tabs_html + '    ' + template[close_idx:]
+                break
+            search_start = close_idx + 6
+
+    # Replace list section: entry cards between tabs and <script>
+    script_idx = template.find('<script>')
+    if script_idx >= 0:
+        # Find the first entry-card after the tabs div
+        first_card = template.find('<a class="entry-card"', tabs_idx)
+        if first_card >= 0 and first_card < script_idx:
+            # Find the end of the last entry-card before <script>
+            # Look backwards from script_idx for the last </a>
+            last_card_end = template.rfind('</a>', first_card, script_idx)
+            if last_card_end >= 0:
+                template = template[:first_card] + list_html + '\n    ' + template[last_card_end + 4:]
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
-        f.write(output)
+        f.write(template)
+
+    # Also update root index.html
+    with open(TEMPLATE_PATH, 'w', encoding='utf-8') as f:
+        f.write(template)
 
     print(f'Built {len(entries)} entries → {OUTPUT_PATH}')
 
