@@ -205,6 +205,7 @@
       
       
       
+      
       <a class="entry-card" data-tags="" onclick="showDetail('2026-05-18'); return false;" href="#2026-05-18">
         <div class="entry-date">2026.05.18</div>
         <div class="entry-title">2026-05-18 周一</div>
@@ -220,6 +221,7 @@
         <div class="entry-title">复利、容器和不知道该创造什么</div>
         <div class="entry-summary">summary: 用对数曲线想了两件事：养育豌豆尖可能正处于复利的早期，而现在的工作容器已到中后期。前者的关键是克制，后者的答案是等待——但等待本身也有质量高低…</div>
       </a>
+    
     
     
     
@@ -341,6 +343,12 @@
       document.title = e.title + ' · 小乐的日记';
       window.scrollTo(0, 0);
     }
+
+    window.addEventListener('hashchange', () => {
+      const id = location.hash.slice(1);
+      if (id && entries[id]) showDetail(id);
+      else showList();
+    });
 
     window.addEventListener('popstate', () => {
       const id = location.hash.slice(1);
