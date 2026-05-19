@@ -215,7 +215,8 @@ def parse_entry(filepath):
     music = parse_kv_block(music_raw) if music_raw else None
 
     # article blocks stay inline — handled inside md_to_html
-    body_html = md_to_html(body_md)
+    # Make body HTML single-line to avoid issues when embedding in <script>
+    body_html = md_to_html(body_md).replace('\n', ' ').replace('\r', '')
     if music:
         body_html += '\n' + music_card_html(music)
     if reading_items:
