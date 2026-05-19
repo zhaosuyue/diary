@@ -9,7 +9,7 @@ Usage:
   
 Then push dist/ (or the root) to GitHub.
 """
-import os, re, json, subprocess, sys
+import os, re, json, subprocess, sys, urllib.request, urllib.parse
 from datetime import datetime
 
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +34,45 @@ def run_cli(shortcut_id):
     return json.loads(result.stdout)
 
 
+def fetch_apple_music_cover(apple_url):
+    """Given an Apple Music URL, return a 600x600 cover image URL or None."""
+    # extract numeric album/song id from URL
+    m = re.search(r'/(\d{6,12})(?:\?|$)', apple_url)
+    if not m:
+        # search URL — try to extract term and query iTunes
+        term_m = re.search(r'[?&]term=([^&]+)', apple_url)
+        if not term_m:
+            return None
+        term = urllib.parse.unquote_plus(term_m.group(1))
+        api_url = f'https://itunes.apple.com/search?term={urllib.parse.quote(term)}&media=music&entity=album&limit=1&country=cn'
+        try:
+            with urllib.request.urlopen(api_url, timeout=8) as r:
+                data = json.loads(r.read())
+            results = data.get('results', [])
+            if results:
+                art = results[0].get('artworkUrl100', '')
+                return art.replace('100x100bb', '600x600bb') if art else None
+        except:
+            return None
+        return None
+
+    item_id = m.group(1)
+    # try as album first, then song
+    for entity in ('album', 'song'):
+        api_url = f'https://itunes.apple.com/lookup?id={item_id}&entity={entity}&country=cn'
+        try:
+            with urllib.request.urlopen(api_url, timeout=8) as r:
+                data = json.loads(r.read())
+            results = data.get('results', [])
+            for item in results:
+                art = item.get('artworkUrl100', '')
+                if art:
+                    return art.replace('100x100bb', '600x600bb')
+        except:
+            continue
+    return None
+
+
 def parse_index(content):
     """Parse main doc → list of (id, date, title)."""
     entries = []
@@ -50,24 +89,44 @@ def parse_index(content):
     return entries
 
 
-def redoc_md_to_html(md):
+def redoc_md_to_html(md, cover_cache=None):
     """Convert Redoc-flavored markdown to plain HTML."""
     if not md: return ''
+    if cover_cache is None: cover_cache = {}
 
     # strip font color tags (date line)
     md = re.sub(r'<font[^>]*>(.*?)</font>', r'<span class="entry-meta">\1</span>', md, flags=re.DOTALL)
 
     # redoc-highlight blocks
     def highlight_block(m):
-        emoji_name = re.search(r'emoji="([^"]+)"', m.group(0))
-        emoji = {'yueliang': '🎵', 'tuding': '📌'}.get(emoji_name.group(1) if emoji_name else '', '•')
+        full_tag = m.group(0)
+        emoji_name = re.search(r'emoji="([^"]+)"', full_tag)
+        emoji_key = emoji_name.group(1) if emoji_name else ''
+        emoji = {'yueliang': '🎵', 'tuding': '📌'}.get(emoji_key, '•')
         inner = m.group(1).strip()
+
+        # For music blocks: extract Apple Music link and fetch cover
+        cover_html = ''
+        if emoji_key == 'yueliang':
+            link_m = re.search(r'\[([^\]]+)\]\((https://music\.apple\.com[^)]+)\)', inner)
+            if link_m:
+                apple_url = link_m.group(2)
+                if apple_url not in cover_cache:
+                    print(f'    fetching cover for {apple_url[:60]}…')
+                    cover_cache[apple_url] = fetch_apple_music_cover(apple_url)
+                cover_url = cover_cache.get(apple_url)
+                if cover_url:
+                    cover_html = f'<img class="music-cover" src="{cover_url}" alt="封面" loading="lazy">'
+
         inner_html = redoc_inline(inner)
         # convert inner lists
         inner_html = re.sub(r'\n- (.+)', r'<li>\1</li>', inner_html)
         if '<li>' in inner_html:
             inner_html = re.sub(r'(<li>.*</li>)', r'<ul>\1</ul>', inner_html, flags=re.DOTALL)
         inner_html = inner_html.replace('\n\n', '</p><p>').replace('\n', '<br>')
+
+        if cover_html:
+            return f'<div class="highlight-block music-block"><div class="music-cover-wrap">{cover_html}</div><div class="hi-body"><span class="hi-emoji">{emoji}</span>{inner_html}</div></div>'
         return f'<div class="highlight-block"><span class="hi-emoji">{emoji}</span><div class="hi-body">{inner_html}</div></div>'
 
     md = re.sub(r'<redoc-highlight[^>]*>([\s\S]*?)</redoc-highlight>', highlight_block, md)
@@ -147,12 +206,13 @@ def build():
     print(f'Found {len(entries_meta)} entries in index.')
 
     entries = []
+    cover_cache = {}
     for i, meta in enumerate(entries_meta):
         print(f'  [{i+1}/{len(entries_meta)}] {meta["date"]} {meta["title"]}')
         try:
             doc = run_cli(meta['id'])
             content = doc.get('content', '')
-            html_body = redoc_md_to_html(content)
+            html_body = redoc_md_to_html(content, cover_cache)
             excerpt = first_para(content)
             # weekday
             try:
@@ -273,6 +333,16 @@ def generate_html(entries):
     .hi-body a:hover {{ text-decoration: underline; }}
     .hi-body ul {{ padding-left: 16px; margin-top: 6px; }}
     .hi-body li {{ margin-bottom: 4px; }}
+
+    /* Music cover */
+    .music-block {{ align-items: flex-start; gap: 14px; }}
+    .music-cover-wrap {{ flex-shrink: 0; }}
+    .music-cover {{
+      width: 80px; height: 80px; border-radius: 8px;
+      object-fit: cover; display: block;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    }}
+    .music-block .hi-body {{ padding-top: 2px; }}
 
     .updated-note {{ font-size: 12px; color: #ccc; text-align: right; margin-top: 40px; }}
   </style>
