@@ -1,343 +1,343 @@
 #!/usr/bin/env python3
-"""Build diary site from markdown entries — list + detail SPA."""
-import os, re, glob, json
+"""
+Build diary site from Redoc docs.
+Pulls content from Redoc via hi-workspace-cli, generates static JSON,
+then writes index.html with the data embedded.
+
+Usage:
+  python3 build.py
+  
+Then push dist/ (or the root) to GitHub.
+"""
+import os, re, json, subprocess, sys
 from datetime import datetime
 
-ENTRIES_DIR   = os.path.join(os.path.dirname(__file__), 'entries')
-TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'index.html')
-OUTPUT_PATH   = os.path.join(os.path.dirname(__file__), 'dist', 'index.html')
+SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
+DIST_DIR     = os.path.join(SCRIPT_DIR, 'dist')
+OUTPUT_PATH  = os.path.join(DIST_DIR, 'index.html')
+DATA_PATH    = os.path.join(DIST_DIR, 'diary-data.json')
+
+INDEX_DOC_ID = 'e242211844eb2e09e9b775da28fc9f47'
+CLI = 'bunx @xhs/hi-workspace-cli@0.2.7'
+
+WEEKDAY_MAP = {'Monday':'周一','Tuesday':'周二','Wednesday':'周三',
+               'Thursday':'周四','Friday':'周五','Saturday':'周六','Sunday':'周日'}
 
 
-# ── Block parsers ──────────────────────────────────────────────────────────────
-
-def strip_block(text, kind):
-    """Remove <!-- kind ... --> from text, return (cleaned, raw_content|None)."""
-    pattern = rf'<!--\s*{kind}\s*(.*?)-->'
-    match = re.search(pattern, text, re.DOTALL)
-    if not match:
-        return text, None
-    cleaned = (text[:match.start()] + text[match.end():]).strip()
-    return cleaned, match.group(1).strip()
+def run_cli(shortcut_id):
+    """Run docs:get and return parsed JSON dict."""
+    cmd = f'{CLI} docs:get --shortcut-id {shortcut_id}'
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                            cwd=SCRIPT_DIR)
+    if result.returncode != 0:
+        raise RuntimeError(f'CLI failed for {shortcut_id}: {result.stderr[:200]}')
+    return json.loads(result.stdout)
 
 
-def parse_kv_block(raw):
-    """Parse key: value lines into dict."""
-    d = {}
-    for line in raw.splitlines():
-        if ':' in line:
-            k, _, v = line.partition(':')
-            d[k.strip()] = v.strip()
-    return d
+def parse_index(content):
+    """Parse main doc → list of (id, date, title)."""
+    entries = []
+    # Pattern: #### [DATE TITLE](URL)
+    re_entry = re.compile(
+        r'####\s+\[(\d{4}-\d{2}-\d{2})\s+(?:周[一二三四五六日]\s+—\s+)?([^\]]+)\]'
+        r'\(https://docs\.xiaohongshu\.com/doc/([a-f0-9]+)\)'
+    )
+    for m in re_entry.finditer(content):
+        date_str = m.group(1)
+        title    = m.group(2).strip()
+        doc_id   = m.group(3)
+        entries.append({'id': doc_id, 'date': date_str, 'title': title})
+    return entries
 
 
-def parse_tags(text):
-    """Extract 'tags: a, b, c' line from top of body, return (cleaned, [tags])."""
-    match = re.match(r'^tags:\s*(.+)$', text.strip(), re.MULTILINE)
-    if not match:
-        return text, []
-    tags = [t.strip() for t in match.group(1).split(',') if t.strip()]
-    cleaned = text.replace(match.group(0), '').strip()
-    return cleaned, tags
+def redoc_md_to_html(md):
+    """Convert Redoc-flavored markdown to plain HTML."""
+    if not md: return ''
+
+    # strip font color tags (date line)
+    md = re.sub(r'<font[^>]*>(.*?)</font>', r'<span class="entry-meta">\1</span>', md, flags=re.DOTALL)
+
+    # redoc-highlight blocks
+    def highlight_block(m):
+        emoji_name = re.search(r'emoji="([^"]+)"', m.group(0))
+        emoji = {'yueliang': '🎵', 'tuding': '📌'}.get(emoji_name.group(1) if emoji_name else '', '•')
+        inner = m.group(1).strip()
+        inner_html = redoc_inline(inner)
+        # convert inner lists
+        inner_html = re.sub(r'\n- (.+)', r'<li>\1</li>', inner_html)
+        if '<li>' in inner_html:
+            inner_html = re.sub(r'(<li>.*</li>)', r'<ul>\1</ul>', inner_html, flags=re.DOTALL)
+        inner_html = inner_html.replace('\n\n', '</p><p>').replace('\n', '<br>')
+        return f'<div class="highlight-block"><span class="hi-emoji">{emoji}</span><div class="hi-body">{inner_html}</div></div>'
+
+    md = re.sub(r'<redoc-highlight[^>]*>([\s\S]*?)</redoc-highlight>', highlight_block, md)
+
+    lines = md.split('\n')
+    html = []
+    in_ul = False
+
+    for line in lines:
+        # already html block
+        if line.strip().startswith('<div class="highlight-block">'):
+            if in_ul: html.append('</ul>'); in_ul = False
+            html.append(line); continue
+
+        if line.startswith('#### '): 
+            if in_ul: html.append('</ul>'); in_ul = False
+            html.append(f'<h4>{redoc_inline(line[5:])}</h4>'); continue
+        if line.startswith('### '):
+            if in_ul: html.append('</ul>'); in_ul = False
+            html.append(f'<h3>{redoc_inline(line[4:])}</h3>'); continue
+        if line.startswith('## '):
+            if in_ul: html.append('</ul>'); in_ul = False
+            html.append(f'<h2>{redoc_inline(line[3:])}</h2>'); continue
+        if line.startswith('# '):
+            if in_ul: html.append('</ul>'); in_ul = False
+            html.append(f'<h1>{redoc_inline(line[2:])}</h1>'); continue
+
+        if re.match(r'^---+$', line.strip()):
+            if in_ul: html.append('</ul>'); in_ul = False
+            html.append('<hr>'); continue
+
+        if line.startswith('- ') or line.startswith('* '):
+            if not in_ul: html.append('<ul>'); in_ul = True
+            html.append(f'<li>{redoc_inline(line[2:])}</li>'); continue
+        else:
+            if in_ul: html.append('</ul>'); in_ul = False
+
+        stripped = line.strip()
+        if not stripped or stripped == '<br/>': continue
+        html.append(f'<p>{redoc_inline(stripped)}</p>')
+
+    if in_ul: html.append('</ul>')
+    return '\n'.join(html)
 
 
-# ── HTML renderers ─────────────────────────────────────────────────────────────
-
-def article_card_html(music):
-    title  = music.get('title', '')
-    source = music.get('source', '')
-    url    = music.get('url', '#')
-    source_html = f'<div class="article-source">{source}</div>' if source else ''
-    return f'''<a class="article-card" href="{url}" target="_blank" rel="noopener">
-  <div class="article-info">
-    <div class="article-label">来自文章</div>
-    <div class="article-title">{title}</div>
-    {source_html}
-  </div>
-  <div class="music-arrow">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-  </div>
-</a>'''
+def redoc_inline(text):
+    """Inline markdown: links, bold, italic, code."""
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)',
+                  r'<a href="\2" target="_blank" rel="noopener">\1</a>', text)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', text)
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+    return text
 
 
-def music_card_html(music):
-    title  = music.get('title', '')
-    artist = music.get('artist', '')
-    cover  = music.get('cover', '')
-    url    = music.get('apple_music', '#')
-    note   = music.get('note', '')
-    cover_html = f'<img class="music-cover" src="{cover}" alt="{title}" onerror="this.style.background=\'#e8e8e8\'">' if cover else '<div class="music-cover music-cover-placeholder"></div>'
-    note_html = f'<div class="music-note">{note}</div>' if note else ''
-    return f'''<a class="music-card" href="{url}" target="_blank" rel="noopener">
-  {cover_html}
-  <div class="music-info">
-    <div class="music-label">今天在听</div>
-    <div class="music-title">{title}</div>
-    <div class="music-artist">{artist}</div>
-    {note_html}
-  </div>
-  <div class="music-arrow">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-  </div>
-</a>'''
-
-
-def reading_block_html(items):
-    if not items:
-        return ''
-    links = ''
-    for item in items:
-        src = f'<span class="reading-source"> — {item["source"]}</span>' if item.get('source') else ''
-        links += f'<a class="reading-link" href="{item["url"]}" target="_blank" rel="noopener">{item["title"]}{src}</a>\n'
-    return f'<div class="reading-section"><div class="reading-label">延伸阅读</div>{links}</div>'
-
-
-def md_to_html(text):
-    """Minimal markdown → HTML (h2, paragraphs, bold, italic, hr)."""
-    text = text.strip()
-    # Split on blank lines, but keep article blocks inline
-    # First, extract article blocks and replace with placeholders
-    article_placeholders = {}
-    def replace_article(m):
-        key = f'__ARTICLE_{len(article_placeholders)}__'
-        raw = m.group(1).strip()
-        article_placeholders[key] = article_card_html(parse_kv_block(raw))
-        return f'\n\n{key}\n\n'
-    text = re.sub(r'<!--\s*article\s*(.*?)-->', replace_article, text, flags=re.DOTALL)
-
-    blocks = re.split(r'\n\n+', text)
-    html_parts = []
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
-        if block in article_placeholders:
-            html_parts.append(article_placeholders[block])
-            continue
-        if block == '---':
-            html_parts.append('<hr>')
-            continue
-        if block.startswith('## '):
-            html_parts.append(f'<h2 class="entry-section-title">{block[3:].strip()}</h2>')
-            continue
-        block = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', block)
-        block = re.sub(r'\*(.+?)\*',     r'<em>\1</em>', block)
-        block = block.replace('\n', ' ')
-        html_parts.append(f'<p>{block}</p>')
-    return '\n'.join(html_parts)
-
-
-def first_sentence(text, max_chars=80):
-    """Fallback: grab first real paragraph."""
-    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
-    text = re.sub(r'^tags:.*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\*+', '', text)
+def first_para(content):
+    """Extract first real paragraph as excerpt (strip redoc tags)."""
+    text = re.sub(r'<font[^>]*>.*?</font>', '', content, flags=re.DOTALL)
+    text = re.sub(r'<redoc-highlight[\s\S]*?</redoc-highlight>', '', text)
+    text = re.sub(r'<[^>]+>', '', text)
     for para in re.split(r'\n\n+', text.strip()):
         para = para.strip()
-        if para and para != '---' and not para.startswith('##'):
-            return para[:max_chars] + ('…' if len(para) > max_chars else '')
+        if para and not para.startswith('#') and not re.match(r'^-{3,}$', para):
+            return para[:100] + ('…' if len(para) > 100 else '')
     return ''
 
 
-def extract_summary(text):
-    """Extract hand-written summary from 'summary: ...' line, or fall back."""
-    match = re.match(r'^summary:\s*(.+)$', text.strip(), re.MULTILINE)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-# ── Entry parser ───────────────────────────────────────────────────────────────
-
-def parse_entry(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    # Strip YAML front matter if present
-    fm_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
-    if fm_match:
-        fm_raw = fm_match.group(1)
-        body_lines = content[fm_match.end():].split('\n')
-        # Extract title/date/tags from front matter as fallback
-        fm = parse_kv_block(fm_raw)
-        fm_title = fm.get('title', '').strip('"\'')
-        fm_tags_raw = fm.get('tags', '')
-        # Handle YAML array syntax: [tag1, tag2]
-        fm_tags = []
-        arr_match = re.match(r'\[(.+)\]', fm_tags_raw)
-        if arr_match:
-            fm_tags = [t.strip().strip('"\'') for t in arr_match.group(1).split(',')]
-    else:
-        fm_title = ''
-        fm_tags = []
-        lines = content.strip().split('\n')
-        body_lines = lines
-
-    title = fm_title
-    if not title and body_lines and body_lines[0].startswith('# '):
-        title = body_lines[0][2:].strip()
-        body_lines = body_lines[1:]
-
-    filename = os.path.basename(filepath)
-    date_str = re.match(r'(\d{4}-\d{2}-\d{2})', filename)
-    date_str = date_str.group(1) if date_str else datetime.now().strftime('%Y-%m-%d')
-    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-    display  = date_obj.strftime('%Y.%m.%d')
-
-    body_md = '\n'.join(body_lines).strip()
-
-    # Extract summary line
-    summary_override = extract_summary(body_md)
-    if summary_override:
-        body_md = re.sub(r'^summary:.*$', '', body_md, flags=re.MULTILINE).strip()
-
-    # Extract tags from body; fall back to front matter tags
-    body_md, tags = parse_tags(body_md)
-    if not tags:
-        tags = fm_tags
-
-    # Extract reading block (always at end)
-    body_md, reading_raw = strip_block(body_md, 'reading')
-    reading_items = []
-    if reading_raw:
-        for line in reading_raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = [p.strip() for p in line.split('|')]
-            if len(parts) == 3:
-                reading_items.append({'title': parts[0], 'source': parts[1], 'url': parts[2]})
-            elif len(parts) == 2:
-                reading_items.append({'title': parts[0], 'source': '', 'url': parts[1]})
-
-    # Extract music block (always at end)
-    body_md, music_raw = strip_block(body_md, 'music')
-    music = parse_kv_block(music_raw) if music_raw else None
-
-    # article blocks stay inline — handled inside md_to_html
-    # Make body HTML single-line to avoid issues when embedding in <script>
-    body_html = md_to_html(body_md).replace('\n', ' ').replace('\r', '')
-    if music:
-        body_html += '\n' + music_card_html(music)
-    if reading_items:
-        body_html += '\n' + reading_block_html(reading_items)
-
-    summary = summary_override if summary_override else first_sentence(body_md)
-
-    return {
-        'id':       date_str,
-        'date':     display,
-        'date_obj': date_obj,
-        'title':    title,
-        'tags':     tags,
-        'summary':  summary,
-        'body':     body_html,
-    }
-
-
-# ── Build ──────────────────────────────────────────────────────────────────────
-
 def build():
-    files   = glob.glob(os.path.join(ENTRIES_DIR, '*.md'))
+    print(f'Fetching index doc {INDEX_DOC_ID}…')
+    try:
+        index_doc = run_cli(INDEX_DOC_ID)
+    except Exception as e:
+        print(f'ERROR: {e}')
+        sys.exit(1)
+
+    entries_meta = parse_index(index_doc.get('content', ''))
+    print(f'Found {len(entries_meta)} entries in index.')
+
     entries = []
-    for f in files:
+    for i, meta in enumerate(entries_meta):
+        print(f'  [{i+1}/{len(entries_meta)}] {meta["date"]} {meta["title"]}')
         try:
-            entries.append(parse_entry(f))
+            doc = run_cli(meta['id'])
+            content = doc.get('content', '')
+            html_body = redoc_md_to_html(content)
+            excerpt = first_para(content)
+            # weekday
+            try:
+                dt = datetime.strptime(meta['date'], '%Y-%m-%d')
+                wd = WEEKDAY_MAP.get(dt.strftime('%A'), '')
+            except:
+                wd = ''
+
+            entries.append({
+                'id':      meta['id'],
+                'date':    meta['date'],
+                'weekday': wd,
+                'title':   meta['title'],
+                'excerpt': excerpt,
+                'html':    html_body,
+            })
         except Exception as e:
-            print(f'Error parsing {f}: {e}')
+            print(f'    WARNING: failed to fetch {meta["id"]}: {e}')
 
-    entries.sort(key=lambda e: e['date_obj'], reverse=True)
+    os.makedirs(DIST_DIR, exist_ok=True)
 
-    # Collect all tags
-    all_tags = []
-    for e in entries:
-        for t in e['tags']:
-            if t not in all_tags:
-                all_tags.append(t)
+    # save raw data JSON
+    with open(DATA_PATH, 'w', encoding='utf-8') as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+    print(f'Saved {len(entries)} entries to {DATA_PATH}')
 
-    # List HTML
-    list_html = ''
-    for e in entries:
-        tags_attr = ','.join(e['tags'])
-        tags_html = ''.join(f'<span class="entry-tag">{t}</span>' for t in e['tags'])
-        list_html += f'''
-      <a class="entry-card" data-tags="{tags_attr}" onclick="showDetail('{e['id']}'); return false;" href="#{e['id']}">
-        <div class="entry-date">{e['date']}{tags_html}</div>
-        <div class="entry-title">{e['title']}</div>
-        <div class="entry-summary">{e['summary']}</div>
-      </a>'''
-
-    # Tab HTML
-    tabs_html = '<button class="tab active" onclick="filterTag(\'全部\', this)">全部</button>\n'
-    for t in all_tags:
-        tabs_html += f'<button class="tab" onclick="filterTag(\'{t}\', this)">{t}</button>\n'
-
-    entries_dict = {e['id']: {'date': e['date'], 'title': e['title'], 'body': e['body'], 'tags': e['tags']} for e in entries}
-    entries_json = json.dumps(entries_dict, ensure_ascii=False)
-
-    # Read the current built HTML as base template
-    # Try dist/index.html first, then root index.html
-    base_paths = [OUTPUT_PATH, TEMPLATE_PATH]
-    template = None
-    for p in base_paths:
-        if os.path.exists(p):
-            with open(p, 'r', encoding='utf-8') as f:
-                template = f.read()
-            break
-    if template is None:
-        print('Error: no base HTML found')
-        return
-
-    # Replace entries JSON: const entries = {...};
-    json_pattern = r'(const entries\s*=\s*)\{.*?\};'
-    template = re.sub(json_pattern, r'\g<1>' + entries_json + ';', template, flags=re.DOTALL)
-
-    # Replace tabs section: <div class="tabs">...</div>
-    tabs_pattern = r'(<div class="tabs">\s*)[\s\S]*?(</div>)'
-    # Find the tabs div, replace content between it and the matching </div>
-    tabs_start_marker = '<div class="tabs">'
-    tabs_idx = template.find(tabs_start_marker)
-    if tabs_idx >= 0:
-        # Find the closing </div> that matches the tabs div
-        inner_start = tabs_idx + len(tabs_start_marker)
-        # Count from the first </div> after tabs_start
-        # The tabs div contains only button elements, so the first </div> after tabs_start closes it
-        search_start = inner_start
-        while True:
-            close_idx = template.find('</div>', search_start)
-            if close_idx < 0:
-                break
-            # Check there's no nested div between inner_start and close_idx
-            between = template[inner_start:close_idx]
-            open_count = between.count('<div')
-            close_count = between.count('</div>')
-            if open_count == close_count:
-                # This is the matching close tag
-                template = template[:inner_start] + '\n' + tabs_html + '    ' + template[close_idx:]
-                break
-            search_start = close_idx + 6
-
-    # Replace list section: entry cards between tabs and <script>
-    script_idx = template.find('<script>')
-    if script_idx >= 0:
-        # Find the first entry-card after the tabs div
-        first_card = template.find('<a class="entry-card"', tabs_idx)
-        if first_card >= 0 and first_card < script_idx:
-            # Find the end of the last entry-card before <script>
-            # Look backwards from script_idx for the last </a>
-            last_card_end = template.rfind('</a>', first_card, script_idx)
-            if last_card_end >= 0:
-                template = template[:first_card] + list_html + '\n    ' + template[last_card_end + 4:]
-
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    # write index.html
+    html = generate_html(entries)
     with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
-        f.write(template)
+        f.write(html)
+    # also write to root for GitHub Pages
+    root_html = os.path.join(SCRIPT_DIR, 'index.html')
+    with open(root_html, 'w', encoding='utf-8') as f:
+        f.write(html)
+    print(f'Written {OUTPUT_PATH} and {root_html}')
 
-    # Also update root index.html
-    with open(TEMPLATE_PATH, 'w', encoding='utf-8') as f:
-        f.write(template)
 
-    print(f'Built {len(entries)} entries → {OUTPUT_PATH}')
+def generate_html(entries):
+    entries_json = json.dumps(entries, ensure_ascii=False)
+
+    cards_html = ''
+    for i, e in enumerate(entries):
+        cards_html += f'''    <div class="entry-card" onclick="open_entry({i})">
+      <div class="entry-date">{e["date"]} {e["weekday"]}</div>
+      <div class="entry-title">{e["title"]}</div>
+      <div class="entry-excerpt">{e["excerpt"]}</div>
+    </div>\n'''
+
+    template = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小乐的日记</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📓</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#111111">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="日记">
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{
+      font-family: 'PingFang SC', 'SF Pro Display', -apple-system, sans-serif;
+      background: #fafafa; color: #222; line-height: 1.8;
+      -webkit-font-smoothing: antialiased;
+    }}
+    .container {{ max-width: 640px; margin: 0 auto; padding: 60px 24px 120px; }}
+
+    header {{ margin-bottom: 36px; padding-bottom: 20px; border-bottom: 1px solid #e8e8e8; }}
+    header h1 {{ font-size: 18px; font-weight: 500; letter-spacing: 0.5px; color: #111; }}
+    header p  {{ font-size: 13px; color: #999; margin-top: 4px; }}
+
+    /* List */
+    #view-list {{ display: block; }}
+    #view-detail {{ display: none; }}
+
+    .entry-card {{
+      background: #fff; border: 1px solid #eee; border-radius: 12px;
+      padding: 20px 22px; margin-bottom: 12px; cursor: pointer;
+      transition: box-shadow .15s, border-color .15s; text-decoration: none; display: block;
+    }}
+    .entry-card:hover {{ box-shadow: 0 2px 12px rgba(0,0,0,.07); border-color: #ddd; }}
+    .entry-date {{ font-size: 12px; color: #bbb; margin-bottom: 5px; }}
+    .entry-title {{ font-size: 16px; font-weight: 600; color: #111; margin-bottom: 7px; line-height: 1.4; }}
+    .entry-excerpt {{ font-size: 13px; color: #888; line-height: 1.6; }}
+
+    /* Detail */
+    .back-btn {{
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 13px; color: #888; cursor: pointer; margin-bottom: 32px;
+      background: none; border: none; padding: 0;
+    }}
+    .back-btn:hover {{ color: #333; }}
+    .detail-meta {{ font-size: 13px; color: #bbb; margin-bottom: 8px; }}
+    .detail-title {{ font-size: 22px; font-weight: 700; color: #111; line-height: 1.3; margin-bottom: 28px; }}
+
+    .detail-body {{ font-size: 15px; line-height: 1.9; color: #333; }}
+    .detail-body p {{ margin-bottom: 16px; }}
+    .detail-body h2 {{ font-size: 16px; font-weight: 600; color: #111; margin: 24px 0 10px; }}
+    .detail-body h4 {{ font-size: 15px; font-weight: 600; color: #111; margin: 20px 0 8px; }}
+    .detail-body hr {{ border: none; border-top: 1px solid #eee; margin: 24px 0; }}
+    .detail-body a {{ color: #0066cc; text-decoration: none; }}
+    .detail-body a:hover {{ text-decoration: underline; }}
+    .detail-body ul {{ padding-left: 20px; margin-bottom: 16px; }}
+    .detail-body li {{ margin-bottom: 6px; }}
+    .detail-body .entry-meta {{ color: #bbb; font-size: 13px; }}
+
+    /* Highlight blocks (音乐 / 延伸阅读) */
+    .highlight-block {{
+      background: #f5f5f5; border-radius: 10px; padding: 16px 18px;
+      margin: 20px 0; display: flex; gap: 12px; align-items: flex-start;
+    }}
+    .hi-emoji {{ font-size: 18px; flex-shrink: 0; margin-top: 2px; }}
+    .hi-body {{ font-size: 14px; flex: 1; }}
+    .hi-body strong {{ font-size: 13px; color: #888; display: block; margin-bottom: 8px; }}
+    .hi-body a {{ color: #0066cc; text-decoration: none; }}
+    .hi-body a:hover {{ text-decoration: underline; }}
+    .hi-body ul {{ padding-left: 16px; margin-top: 6px; }}
+    .hi-body li {{ margin-bottom: 4px; }}
+
+    .updated-note {{ font-size: 12px; color: #ccc; text-align: right; margin-top: 40px; }}
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📓 小乐的日记</h1>
+    <p id="header-sub">ENTRY_COUNT 篇</p>
+  </header>
+
+  <div id="view-list">
+    ENTRY_CARDS_PLACEHOLDER
+  </div>
+
+  <div id="view-detail">
+    <button class="back-btn" onclick="show_list()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      返回
+    </button>
+    <div class="detail-meta" id="d-meta"></div>
+    <div class="detail-title" id="d-title"></div>
+    <div class="detail-body" id="d-body"></div>
+    <div class="updated-note" id="d-note"></div>
+  </div>
+</div>
+
+<script>
+const ENTRIES = {entries_json};
+
+function open_entry(i) {{
+  const e = ENTRIES[i];
+  document.getElementById('view-list').style.display = 'none';
+  document.getElementById('view-detail').style.display = 'block';
+  document.getElementById('d-meta').textContent = e.date + (e.weekday ? ' · ' + e.weekday : '');
+  document.getElementById('d-title').textContent = e.title;
+  document.getElementById('d-body').innerHTML = e.html;
+  document.title = e.title + ' · 小乐的日记';
+  history.pushState({{i}}, '', '#' + i);
+  window.scrollTo(0, 0);
+}}
+
+function show_list() {{
+  document.getElementById('view-detail').style.display = 'none';
+  document.getElementById('view-list').style.display = 'block';
+  document.title = '小乐的日记';
+  history.pushState({{}}, '', location.pathname);
+  window.scrollTo(0, 0);
+}}
+
+window.addEventListener('popstate', e => {{
+  if (e.state && e.state.i !== undefined) open_entry(e.state.i);
+  else show_list();
+}});
+
+// handle direct hash link
+const hash = location.hash.slice(1);
+if (hash && !isNaN(parseInt(hash))) open_entry(parseInt(hash));
+</script>
+</body>
+</html>'''
+
+    template = template.replace('ENTRY_CARDS_PLACEHOLDER', cards_html)
+    template = template.replace('ENTRY_COUNT', str(len(entries)))
+    return template
 
 
 if __name__ == '__main__':
