@@ -273,77 +273,91 @@ def generate_html(entries):
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="日记">
   <style>
+    :root {{
+      --bg: #fafafa; --bg2: #fff; --border: #eee; --border2: #ddd;
+      --text: #222; --text2: #555; --muted: #999; --faint: #bbb;
+      --link: #0066cc; --hi-bg: #f2f2f2;
+      --shadow: rgba(0,0,0,.07);
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #111; --bg2: #1c1c1e; --border: #2c2c2e; --border2: #3a3a3c;
+        --text: #f0f0f0; --text2: #aaa; --muted: #666; --faint: #555;
+        --link: #4da6ff; --hi-bg: #1e1e20;
+        --shadow: rgba(0,0,0,.3);
+      }}
+    }}
+
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
       font-family: 'PingFang SC', 'SF Pro Display', -apple-system, sans-serif;
-      background: #fafafa; color: #222; line-height: 1.8;
+      background: var(--bg); color: var(--text); line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }}
-    .container {{ max-width: 640px; margin: 0 auto; padding: 60px 24px 120px; }}
+    .container {{ max-width: 640px; margin: 0 auto; padding: 56px 24px 100px; }}
 
-    header {{ margin-bottom: 36px; padding-bottom: 20px; border-bottom: 1px solid #e8e8e8; }}
-    header h1 {{ font-size: 18px; font-weight: 500; letter-spacing: 0.5px; color: #111; }}
-    header p  {{ font-size: 13px; color: #999; margin-top: 4px; }}
+    header {{ margin-bottom: 32px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }}
+    header h1 {{ font-size: 18px; font-weight: 500; letter-spacing: 0.4px; color: var(--text); }}
+    header p  {{ font-size: 13px; color: var(--muted); margin-top: 4px; }}
 
     /* List */
     #view-list {{ display: block; }}
     #view-detail {{ display: none; }}
 
     .entry-card {{
-      background: #fff; border: 1px solid #eee; border-radius: 12px;
-      padding: 20px 22px; margin-bottom: 12px; cursor: pointer;
-      transition: box-shadow .15s, border-color .15s; text-decoration: none; display: block;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 20px; margin-bottom: 10px; cursor: pointer;
+      transition: box-shadow .15s, border-color .15s; display: block;
     }}
-    .entry-card:hover {{ box-shadow: 0 2px 12px rgba(0,0,0,.07); border-color: #ddd; }}
-    .entry-date {{ font-size: 12px; color: #bbb; margin-bottom: 5px; }}
-    .entry-title {{ font-size: 16px; font-weight: 600; color: #111; margin-bottom: 7px; line-height: 1.4; }}
-    .entry-excerpt {{ font-size: 13px; color: #888; line-height: 1.6; }}
+    .entry-card:hover {{ box-shadow: 0 2px 12px var(--shadow); border-color: var(--border2); }}
+    .entry-date {{ font-size: 12px; color: var(--faint); margin-bottom: 4px; }}
+    .entry-title {{ font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; line-height: 1.4; }}
+    .entry-excerpt {{ font-size: 13px; color: var(--text2); line-height: 1.5; }}
 
     /* Detail */
     .back-btn {{
       display: inline-flex; align-items: center; gap: 6px;
-      font-size: 13px; color: #888; cursor: pointer; margin-bottom: 32px;
+      font-size: 13px; color: var(--muted); cursor: pointer; margin-bottom: 28px;
       background: none; border: none; padding: 0;
     }}
-    .back-btn:hover {{ color: #333; }}
-    .detail-meta {{ font-size: 13px; color: #bbb; margin-bottom: 8px; }}
-    .detail-title {{ font-size: 22px; font-weight: 700; color: #111; line-height: 1.3; margin-bottom: 28px; }}
+    .back-btn:hover {{ color: var(--text); }}
+    .detail-meta {{ font-size: 12px; color: var(--faint); margin-bottom: 6px; }}
+    .detail-title {{ font-size: 21px; font-weight: 700; color: var(--text); line-height: 1.3; margin-bottom: 24px; }}
 
-    .detail-body {{ font-size: 15px; line-height: 1.9; color: #333; }}
-    .detail-body p {{ margin-bottom: 16px; }}
-    .detail-body h2 {{ font-size: 16px; font-weight: 600; color: #111; margin: 24px 0 10px; }}
-    .detail-body h4 {{ font-size: 15px; font-weight: 600; color: #111; margin: 20px 0 8px; }}
-    .detail-body hr {{ border: none; border-top: 1px solid #eee; margin: 24px 0; }}
-    .detail-body a {{ color: #0066cc; text-decoration: none; }}
+    .detail-body {{ font-size: 15px; line-height: 1.65; color: var(--text2); }}
+    .detail-body p {{ margin-bottom: 12px; }}
+    .detail-body h2 {{ font-size: 15px; font-weight: 600; color: var(--text); margin: 20px 0 8px; }}
+    .detail-body h4 {{ font-size: 14px; font-weight: 600; color: var(--text); margin: 18px 0 6px; }}
+    .detail-body hr {{ border: none; border-top: 1px solid var(--border); margin: 20px 0; }}
+    .detail-body a {{ color: var(--link); text-decoration: none; }}
     .detail-body a:hover {{ text-decoration: underline; }}
-    .detail-body ul {{ padding-left: 20px; margin-bottom: 16px; }}
-    .detail-body li {{ margin-bottom: 6px; }}
-    .detail-body .entry-meta {{ color: #bbb; font-size: 13px; }}
+    .detail-body ul {{ padding-left: 18px; margin-bottom: 12px; }}
+    .detail-body li {{ margin-bottom: 4px; }}
+    .detail-body .entry-meta {{ display: none; }}
 
-    /* Highlight blocks (音乐 / 延伸阅读) */
+    /* Highlight blocks */
     .highlight-block {{
-      background: #f5f5f5; border-radius: 10px; padding: 16px 18px;
-      margin: 20px 0; display: flex; gap: 12px; align-items: flex-start;
+      background: var(--hi-bg); border-radius: 10px; padding: 14px 16px;
+      margin: 16px 0; display: flex; gap: 10px; align-items: flex-start;
     }}
-    .hi-emoji {{ font-size: 18px; flex-shrink: 0; margin-top: 2px; }}
-    .hi-body {{ font-size: 14px; flex: 1; }}
-    .hi-body strong {{ font-size: 13px; color: #888; display: block; margin-bottom: 8px; }}
-    .hi-body a {{ color: #0066cc; text-decoration: none; }}
+    .hi-emoji {{ font-size: 16px; flex-shrink: 0; margin-top: 1px; }}
+    .hi-body {{ font-size: 13.5px; flex: 1; color: var(--text2); line-height: 1.55; }}
+    .hi-body strong {{ font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }}
+    .hi-body a {{ color: var(--link); text-decoration: none; }}
     .hi-body a:hover {{ text-decoration: underline; }}
-    .hi-body ul {{ padding-left: 16px; margin-top: 6px; }}
-    .hi-body li {{ margin-bottom: 4px; }}
+    .hi-body ul {{ padding-left: 14px; margin-top: 4px; }}
+    .hi-body li {{ margin-bottom: 3px; }}
 
     /* Music cover */
-    .music-block {{ align-items: flex-start; gap: 14px; }}
+    .music-block {{ padding: 12px 14px; }}
     .music-cover-wrap {{ flex-shrink: 0; }}
     .music-cover {{
-      width: 80px; height: 80px; border-radius: 8px;
+      width: 72px; height: 72px; border-radius: 8px;
       object-fit: cover; display: block;
-      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      box-shadow: 0 2px 8px var(--shadow);
     }}
-    .music-block .hi-body {{ padding-top: 2px; }}
-
-    .updated-note {{ font-size: 12px; color: #ccc; text-align: right; margin-top: 40px; }}
+    .music-block .hi-emoji {{ display: none; }}
+    .music-block .hi-body {{ padding-top: 0; }}
   </style>
 </head>
 <body>
