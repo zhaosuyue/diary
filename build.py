@@ -93,8 +93,8 @@ def redoc_md_to_html(md, cover_cache=None):
     if not md: return ''
     if cover_cache is None: cover_cache = {}
 
-    # strip font color tags (date line)
-    md = re.sub(r'<font[^>]*>(.*?)</font>', r'<span class="entry-meta">\1</span>', md, flags=re.DOTALL)
+    # strip font color tags (date line) — hide with inline style to avoid JSON escaping issues
+    md = re.sub(r'<font[^>]*>(.*?)</font>', r'<span style="display:none">\1</span>', md, flags=re.DOTALL)
 
     # redoc-highlight blocks
     def highlight_block(m):
