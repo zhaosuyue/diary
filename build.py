@@ -57,19 +57,18 @@ def fetch_apple_music_cover(apple_url):
         return None
 
     item_id = m.group(1)
-    # try as album first, then song
-    for entity in ('album', 'song'):
-        api_url = f'https://itunes.apple.com/lookup?id={item_id}&entity={entity}&country=cn'
-        try:
-            with urllib.request.urlopen(api_url, timeout=8) as r:
-                data = json.loads(r.read())
-            results = data.get('results', [])
-            for item in results:
-                art = item.get('artworkUrl100', '')
-                if art:
-                    return art.replace('100x100bb', '600x600bb')
-        except:
-            continue
+    # lookup by id — works for both albums and songs (tracks)
+    api_url = f'https://itunes.apple.com/lookup?id={item_id}&country=cn'
+    try:
+        with urllib.request.urlopen(api_url, timeout=8) as r:
+            data = json.loads(r.read())
+        results = data.get('results', [])
+        for item in results:
+            art = item.get('artworkUrl100', '')
+            if art:
+                return art.replace('100x100bb', '600x600bb')
+    except:
+        pass
     return None
 
 
