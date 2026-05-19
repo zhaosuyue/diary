@@ -125,8 +125,8 @@ def redoc_md_to_html(md, cover_cache=None):
         inner_html = inner_html.replace('\n\n', '</p><p>').replace('\n', '<br>')
 
         if cover_html:
-            return f'<div class="highlight-block music-block"><div class="music-cover-wrap">{cover_html}</div><div class="hi-body"><span class="hi-emoji">{emoji}</span>{inner_html}</div></div>'
-        return f'<div class="highlight-block"><span class="hi-emoji">{emoji}</span><div class="hi-body">{inner_html}</div></div>'
+            return f'<div class="hi-block music-block"><div class="music-cover-wrap">{cover_html}</div><div class="hi-content"><span class="hi-icon">{emoji}</span>{inner_html}</div></div>'
+        return f'<div class="hi-block"><span class="hi-icon">{emoji}</span><div class="hi-content">{inner_html}</div></div>'
 
     md = re.sub(r'<redoc-highlight[^>]*>([\s\S]*?)</redoc-highlight>', highlight_block, md)
 
@@ -254,146 +254,147 @@ def generate_html(entries):
 
     cards_html = ''
     for i, e in enumerate(entries):
-        cards_html += f'''    <div class="entry-card" onclick="open_entry({i})">
-      <div class="entry-date">{e["date"]} {e["weekday"]}</div>
-      <div class="entry-title">{e["title"]}</div>
-      <div class="entry-excerpt">{e["excerpt"]}</div>
-    </div>\n'''
+        cards_html += (
+            f'<div class="card" onclick="open_entry({i})">'
+            f'<div class="card-date">{e["date"]} {e["weekday"]}</div>'
+            f'<div class="card-title">{e["title"]}</div>'
+            f'<div class="card-excerpt">{e["excerpt"]}</div>'
+            f'</div>\n'
+        )
 
-    template = f'''<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>小乐的日记</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📓</text></svg>">
-  <link rel="manifest" href="../manifest.json">
-  <meta name="theme-color" content="#111111">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="日记">
-  <style>
-    :root {{
-      --bg: #fafafa; --bg2: #fff; --border: #eee; --border2: #ddd;
-      --text: #222; --text2: #555; --muted: #999; --faint: #bbb;
-      --link: #0066cc; --hi-bg: #f2f2f2;
-      --shadow: rgba(0,0,0,.07);
-    }}
-    @media (prefers-color-scheme: dark) {{
-      :root {{
-        --bg: #111; --bg2: #1c1c1e; --border: #2c2c2e; --border2: #3a3a3c;
-        --text: #f0f0f0; --text2: #aaa; --muted: #666; --faint: #555;
-        --link: #4da6ff; --hi-bg: #1e1e20;
-        --shadow: rgba(0,0,0,.3);
-      }}
-    }}
+    css = """
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{
-      font-family: 'PingFang SC', 'SF Pro Display', -apple-system, sans-serif;
-      background: var(--bg); color: var(--text); line-height: 1.6;
+    :root {
+      --bg:       #f6f6f4;
+      --surface:  #ffffff;
+      --border:   #e8e8e6;
+      --text1:    #111111;
+      --text2:    #444444;
+      --text3:    #888888;
+      --text4:    #bbbbbb;
+      --accent:   #0055cc;
+      --hi-bg:    #f0f0ee;
+      --shadow:   0 1px 4px rgba(0,0,0,.06);
+      --r:        10px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:      #161618;
+        --surface: #1e1e21;
+        --border:  #2a2a2e;
+        --text1:   #e8e8e8;
+        --text2:   #aaaaaa;
+        --text3:   #666666;
+        --text4:   #444444;
+        --accent:  #4d9fff;
+        --hi-bg:   #242428;
+        --shadow:  0 1px 6px rgba(0,0,0,.25);
+      }
+    }
+
+    body {
+      font-family: -apple-system, 'PingFang SC', 'SF Pro Text', sans-serif;
+      background: var(--bg);
+      color: var(--text1);
+      line-height: 1.6;
       -webkit-font-smoothing: antialiased;
-    }}
-    .container {{ max-width: 640px; margin: 0 auto; padding: 56px 24px 100px; }}
+      font-size: 15px;
+    }
 
-    header {{ margin-bottom: 32px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }}
-    header h1 {{ font-size: 18px; font-weight: 500; letter-spacing: 0.4px; color: var(--text); }}
-    header p  {{ font-size: 13px; color: var(--muted); margin-top: 4px; }}
+    .wrap { max-width: 520px; margin: 0 auto; padding: 48px 20px 80px; }
 
-    /* List */
-    #view-list {{ display: block; }}
-    #view-detail {{ display: none; }}
+    /* ── Header ── */
+    .site-header { margin-bottom: 28px; }
+    .site-title { font-size: 16px; font-weight: 600; color: var(--text1); }
+    .site-count { font-size: 12px; color: var(--text3); margin-top: 2px; }
 
-    .entry-card {{
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
-      padding: 18px 20px; margin-bottom: 10px; cursor: pointer;
-      transition: box-shadow .15s, border-color .15s; display: block;
-    }}
-    .entry-card:hover {{ box-shadow: 0 2px 12px var(--shadow); border-color: var(--border2); }}
-    .entry-date {{ font-size: 12px; color: var(--faint); margin-bottom: 4px; }}
-    .entry-title {{ font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; line-height: 1.4; }}
-    .entry-excerpt {{ font-size: 13px; color: var(--text2); line-height: 1.5; }}
+    /* ── List ── */
+    #view-list  { display: block; }
+    #view-detail { display: none; }
 
-    /* Detail */
-    .back-btn {{
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 13px; color: var(--muted); cursor: pointer; margin-bottom: 28px;
-      background: none; border: none; padding: 0;
-    }}
-    .back-btn:hover {{ color: var(--text); }}
-    .detail-meta {{ font-size: 12px; color: var(--faint); margin-bottom: 6px; }}
-    .detail-title {{ font-size: 21px; font-weight: 700; color: var(--text); line-height: 1.3; margin-bottom: 24px; }}
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 16px 18px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: box-shadow .12s;
+    }
+    .card:hover { box-shadow: var(--shadow); }
+    .card-date  { font-size: 11px; color: var(--text4); margin-bottom: 4px; letter-spacing: .3px; }
+    .card-title { font-size: 14px; font-weight: 600; color: var(--text1); margin-bottom: 5px; line-height: 1.4; }
+    .card-excerpt { font-size: 13px; color: var(--text3); line-height: 1.5; }
 
-    .detail-body {{ font-size: 15px; line-height: 1.65; color: var(--text2); }}
-    .detail-body p {{ margin-bottom: 12px; }}
-    .detail-body h2 {{ font-size: 15px; font-weight: 600; color: var(--text); margin: 20px 0 8px; }}
-    .detail-body h4 {{ font-size: 14px; font-weight: 600; color: var(--text); margin: 18px 0 6px; }}
-    .detail-body hr {{ border: none; border-top: 1px solid var(--border); margin: 20px 0; }}
-    .detail-body a {{ color: var(--link); text-decoration: none; }}
-    .detail-body a:hover {{ text-decoration: underline; }}
-    .detail-body ul {{ padding-left: 18px; margin-bottom: 12px; }}
-    .detail-body li {{ margin-bottom: 4px; }}
-    .detail-body .entry-meta {{ display: none; }}
+    /* ── Detail ── */
+    .back {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 13px; color: var(--text3); background: none;
+      border: none; cursor: pointer; margin-bottom: 24px; padding: 0;
+    }
+    .back:hover { color: var(--text1); }
+    .back svg { width: 14px; height: 14px; }
 
-    /* Highlight blocks */
-    .highlight-block {{
-      background: var(--hi-bg); border-radius: 10px; padding: 14px 16px;
-      margin: 16px 0; display: flex; gap: 10px; align-items: flex-start;
-    }}
-    .hi-emoji {{ font-size: 16px; flex-shrink: 0; margin-top: 1px; }}
-    .hi-body {{ font-size: 13.5px; flex: 1; color: var(--text2); line-height: 1.55; }}
-    .hi-body strong {{ font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }}
-    .hi-body a {{ color: var(--link); text-decoration: none; }}
-    .hi-body a:hover {{ text-decoration: underline; }}
-    .hi-body ul {{ padding-left: 14px; margin-top: 4px; }}
-    .hi-body li {{ margin-bottom: 3px; }}
+    .d-date  { font-size: 11px; color: var(--text4); letter-spacing: .3px; margin-bottom: 6px; }
+    .d-title { font-size: 19px; font-weight: 700; line-height: 1.3; color: var(--text1); margin-bottom: 22px; }
 
-    /* Music cover */
-    .music-block {{ padding: 12px 14px; }}
-    .music-cover-wrap {{ flex-shrink: 0; }}
-    .music-cover {{
-      width: 72px; height: 72px; border-radius: 8px;
-      object-fit: cover; display: block;
-      box-shadow: 0 2px 8px var(--shadow);
-    }}
-    .music-block .hi-emoji {{ display: none; }}
-    .music-block .hi-body {{ padding-top: 0; }}
-  </style>
-</head>
-<body>
-<div class="container">
-  <header>
-    <h1>📓 小乐的日记</h1>
-    <p id="header-sub">ENTRY_COUNT 篇</p>
-  </header>
+    .d-body { font-size: 14px; line-height: 1.7; color: var(--text2); }
+    .d-body p  { margin-bottom: 10px; }
+    .d-body h4 { font-size: 13px; font-weight: 600; color: var(--text1);
+                 margin: 18px 0 6px; letter-spacing: .2px; }
+    .d-body hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+    .d-body a  { color: var(--accent); text-decoration: none; }
+    .d-body a:hover { text-decoration: underline; }
+    .d-body ul { padding-left: 16px; margin-bottom: 10px; }
+    .d-body li { margin-bottom: 3px; }
+    .d-body .entry-meta { display: none; }
 
-  <div id="view-list">
-    ENTRY_CARDS_PLACEHOLDER
-  </div>
+    /* ── Highlight block ── */
+    .hi-block {
+      background: var(--hi-bg);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 14px 0;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .hi-icon { font-size: 14px; flex-shrink: 0; line-height: 1.7; }
+    .hi-content { font-size: 13px; color: var(--text2); line-height: 1.55; flex: 1; }
+    .hi-content strong {
+      display: block; font-size: 11px; font-weight: 600; color: var(--text3);
+      text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px;
+    }
+    .hi-content a  { color: var(--accent); text-decoration: none; }
+    .hi-content a:hover { text-decoration: underline; }
+    .hi-content ul { padding-left: 14px; margin-top: 4px; }
+    .hi-content li { margin-bottom: 3px; }
 
-  <div id="view-detail">
-    <button class="back-btn" onclick="show_list()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-      返回
-    </button>
-    <div class="detail-meta" id="d-meta"></div>
-    <div class="detail-title" id="d-title"></div>
-    <div class="detail-body" id="d-body"></div>
-    <div class="updated-note" id="d-note"></div>
-  </div>
-</div>
+    /* ── Music block (with cover) ── */
+    .music-block { padding: 10px 12px; }
+    .music-cover-wrap { flex-shrink: 0; }
+    .music-cover {
+      width: 64px; height: 64px;
+      border-radius: 6px;
+      object-fit: cover;
+      display: block;
+    }
+    .music-block .hi-icon { display: none; }
+    .music-block .hi-content { padding-top: 1px; }
+    """
 
-<script>
+    js = f"""
 const ENTRIES = {entries_json};
 
 function open_entry(i) {{
   const e = ENTRIES[i];
   document.getElementById('view-list').style.display = 'none';
   document.getElementById('view-detail').style.display = 'block';
-  document.getElementById('d-meta').textContent = e.date + (e.weekday ? ' · ' + e.weekday : '');
-  document.getElementById('d-title').textContent = e.title;
-  document.getElementById('d-body').innerHTML = e.html;
-  document.title = e.title + ' · 小乐的日记';
+  document.querySelector('.d-date').textContent = e.date + (e.weekday ? '  ' + e.weekday : '');
+  document.querySelector('.d-title').textContent = e.title;
+  document.querySelector('.d-body').innerHTML = e.html;
+  document.title = e.title + ' · 日记';
   history.pushState({{i}}, '', '#' + i);
   window.scrollTo(0, 0);
 }}
@@ -406,21 +407,54 @@ function show_list() {{
   window.scrollTo(0, 0);
 }}
 
-window.addEventListener('popstate', e => {{
-  if (e.state && e.state.i !== undefined) open_entry(e.state.i);
+window.addEventListener('popstate', ev => {{
+  if (ev.state && ev.state.i !== undefined) open_entry(ev.state.i);
   else show_list();
 }});
 
-// handle direct hash link
-const hash = location.hash.slice(1);
-if (hash && !isNaN(parseInt(hash))) open_entry(parseInt(hash));
-</script>
-</body>
-</html>'''
+const h = location.hash.slice(1);
+if (h && !isNaN(+h)) open_entry(+h);
+"""
 
-    template = template.replace('ENTRY_CARDS_PLACEHOLDER', cards_html)
-    template = template.replace('ENTRY_COUNT', str(len(entries)))
-    return template
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小乐的日记</title>
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161618" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="日记">
+<style>{css}</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="site-header">
+    <div class="site-title">📓 小乐的日记</div>
+    <div class="site-count">{len(entries)} 篇</div>
+  </header>
+
+  <div id="view-list">
+{cards_html}  </div>
+
+  <div id="view-detail">
+    <button class="back" onclick="show_list()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+      </svg>
+      返回
+    </button>
+    <div class="d-date"></div>
+    <div class="d-title"></div>
+    <div class="d-body"></div>
+  </div>
+
+</div>
+<script>{js}</script>
+</body>
+</html>"""
 
 
 if __name__ == '__main__':
